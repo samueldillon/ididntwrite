@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Countdown Timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #fff; }
+    .wrap {
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.4rem;
+      padding: 2rem 1rem;
+      background: #fff;
+      font-family: 'Nunito', sans-serif;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .top-label { font-size: 16px; font-weight: 700; color: #bbb; }
+    .title-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+      text-transform: uppercase; color: #ccc; margin-top: -0.8rem;
+    }
+    .counter-row { display: flex; align-items: center; gap: 8px; }
+    .digit {
+      background: #fff; border: 2.5px solid #eee; border-radius: 14px;
+      width: 72px; height: 86px; display: flex; align-items: center;
+      justify-content: center; font-size: 54px; font-weight: 900;
+      color: #E24B4A; transition: color 0.2s, border-color 0.2s;
+    }
+    .digit.pop { animation: pop 0.18s ease-out; }
+    @keyframes pop { 0%{transform:scale(1)} 40%{transform:scale(1.16)} 100%{transform:scale(1)} }
+    .digit.urgent { color: #A32D2D; border-color: #F7C1C1; background: #FCEBEB; }
+    .digit.done   { color: #ccc; border-color: #eee; background: #fff; }
+    .digit.paused { color: #bbb; border-color: #eee; background: #fff; }
+    .btn-outer {
+      width: 200px; height: 200px; border-radius: 50%;
+      background: #eee; display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+    }
+    .btn-outer.paused { background: #f5f5f5; }
+    .big-btn {
+      width: 178px; height: 178px; border-radius: 50%; border: none; cursor: pointer;
+      background: #E24B4A; color: #fff; font-family: 'Nunito', sans-serif;
+      font-size: 20px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase;
+      transition: transform 0.08s, background 0.2s; outline: none;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    }
+    .big-btn:active, .big-btn.pressed { transform: scale(0.92); background: #A32D2D; }
+    .big-btn.paused { background: #ccc; }
+    .confetti-bar { display: flex; gap: 7px; align-items: center; justify-content: center; }
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%; background: #eee;
+      transition: background 0.3s; flex-shrink: 0;
+    }
+    .dot.on { background: #E24B4A; }
+    .dot.urgent-dot { background: #A32D2D; }
+    .dot.paused-dot { background: #ddd; }
+    .hint {
+      font-size: 13px; font-weight: 700; color: #ccc;
+      letter-spacing: 0.05em; min-height: 18px; transition: color 0.3s;
+    }
+    .hint.active { color: #E24B4A; }
+    .hint.paused { color: #bbb; }
+    .hint.done { color: #E24B4A; animation: blink 0.5s step-start infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="wrap">
+    <div class="top-label">I didn't write...</div>
+    <div class="title-label">countdown timer</div>
+    <div class="confetti-bar" id="dots"></div>
+    <div class="counter-row">
+      <div class="digit" id="d0">1</div>
+      <div class="digit" id="d1">0</div>
+    </div>
+    <div class="btn-outer" id="btn-outer">
+      <button class="big-btn" id="btn" aria-label="Start or reset the countdown">Press me!</button>
+    </div>
+    <div class="hint" id="hint">tap anywhere to start</div>
+  </div>
+
+  <script>
+    const d0 = document.getElementById('d0');
+    const d1 = document.getElementById('d1');
+    const btn = document.getElementById('btn');
+    const btnOuter = document.getElementById('btn-outer');
+    const hint = document.getElementById('hint');
+    const dotsEl = document.getElementById('dots');
+    const wrap = document.getElementById('wrap');
+
+    for (let i = 0; i < 10; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'dot on';
+      dot.id = 'dot' + i;
+      dotsEl.appendChild(dot);
+    }
+
+    let count = 10, timer = null, audioCtx = null;
+    let paused = false, pausedAt = 0;
+    let lastTap = 0, tapTimeout = null;
+    const DOUBLE_TAP_MS = 300;
+
+    function setDigits(n, cls) {
+      d0.textContent = Math.floor(n / 10);
+      d1.textContent = n % 10;
+      d0.className = 'digit ' + cls;
+      d1.className = 'digit ' + cls;
+    }
+
+    function popDigits() {
+      [d0, d1].forEach(el => {
+        el.classList.remove('pop');
+        void el.offsetWidth;
+        el.classList.add('pop');
+      });
+    }
+
+    function updateDots(n, cls) {
+      for (let i = 0; i < 10; i++) {
+        const dot = document.getElementById('dot' + i);
+        if (i < n) {
+          dot.className = 'dot ' + (cls === 'paused' ? 'paused-dot' : n <= 3 ? 'urgent-dot' : 'on');
+        } else {
+          dot.className = 'dot';
+        }
+      }
+    }
+
+    function getAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function playTick() {
+      const ctx = getAudio();
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.value = 660;
+      g.gain.setValueAtTime(0.08, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.08);
+    }
+
+    function playAlarm() {
+      const ctx = getAudio(), now = ctx.currentTime;
+      for (let i = 0; i < 8; i++) {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = i % 2 === 0 ? 523 : 784;
+        g.gain.setValueAtTime(0.15, now + i * 0.22);
+        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.22 + 0.2);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(now + i * 0.22); osc.stop(now + i * 0.22 + 0.2);
+      }
+    }
+
+    function setPausedUI() {
+      btn.className = 'big-btn paused';
+      btn.textContent = 'Paused';
+      btnOuter.className = 'btn-outer paused';
+      hint.textContent = 'tap to reset  |  double-tap to resume';
+      hint.className = 'hint paused';
+      setDigits(count, 'paused');
+      updateDots(count, 'paused');
+    }
+
+    function setRunningUI() {
+      btn.className = 'big-btn';
+      btn.textContent = 'Reset!';
+      btnOuter.className = 'btn-outer';
+      hint.textContent = 'tap to reset  |  double-tap to pause';
+      hint.className = 'hint active';
+      const cls = count <= 3 ? 'urgent' : '';
+      setDigits(count, cls);
+      updateDots(count);
+    }
+
+    function pauseTimer() {
+      if (!timer || paused) return;
+      clearInterval(timer);
+      timer = null;
+      paused = true;
+      pausedAt = count;
+      setPausedUI();
+    }
+
+    function resumeTimer() {
+      if (!paused) return;
+      paused = false;
+      count = pausedAt;
+      setRunningUI();
+      timer = setInterval(tick, 1000);
+    }
+
+    function tick() {
+      count--;
+      popDigits();
+      if (count > 0) {
+        playTick();
+        const cls = count <= 3 ? 'urgent' : '';
+        setDigits(count, cls);
+        updateDots(count);
+        if (count <= 3) hint.textContent = count === 1 ? 'almost there!' : 'hurry up!';
+      } else {
+        clearInterval(timer);
+        timer = null;
+        paused = false;
+        setDigits(0, 'done');
+        updateDots(0);
+        btn.className = 'big-btn';
+        btn.textContent = 'Again!';
+        btnOuter.className = 'btn-outer';
+        hint.textContent = 'Times up!';
+        hint.className = 'hint done';
+        playAlarm();
+      }
+    }
+
+    function startCountdown() {
+      clearInterval(timer);
+      paused = false;
+      count = 10;
+      btn.className = 'big-btn';
+      btnOuter.className = 'btn-outer';
+      setDigits(10, '');
+      updateDots(10);
+      setRunningUI();
+      timer = setInterval(tick, 1000);
+    }
+
+    function handleTap(e) {
+      e.preventDefault();
+      const ctx = getAudio();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const now = Date.now();
+      const gap = now - lastTap;
+      lastTap = now;
+
+      if (gap < DOUBLE_TAP_MS) {
+        clearTimeout(tapTimeout);
+        tapTimeout = null;
+        if (paused) {
+          resumeTimer();
+        } else if (timer) {
+          pauseTimer();
+        }
+      } else {
+        tapTimeout = setTimeout(() => {
+          tapTimeout = null;
+          btn.classList.add('pressed');
+          setTimeout(() => btn.classList.remove('pressed'), 120);
+          startCountdown();
+        }, DOUBLE_TAP_MS);
+      }
+    }
+
+    wrap.addEventListener('touchstart', handleTap, { passive: false });
+    wrap.addEventListener('click', handleTap);
+  </script>
+</body>
+</html>
